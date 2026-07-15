@@ -73,14 +73,6 @@ dashboardPage(
                 column(6,
                        numericInput("ap_weight", "Weight (kg)", value = 80, min = 0)
                 )
-              ),
-              fluidRow(
-                column(6,
-                       numericInput("measured_time", "Last drink (min)", value = 15.0, min = 0)
-                ),
-                column(6,
-                       numericInput("measured_conc", "Promille (‰)", value = 0.1, min = 0.01)
-                )
               )
               
             ),
@@ -121,10 +113,7 @@ dashboardPage(
                         `data-toggle` = "tooltip"
                       )
                   )
-                )
-                
-                ,  
-                
+                ),  
                 column(8,
                        tags$p("", class = "quantity-label"),
                        fluidRow(
@@ -136,8 +125,6 @@ dashboardPage(
                                 textInput(inputId = "beer_vol", " ", value = " ", width = "100%")),
                          column(1,
                                 tags$p("L", class = "unit-label")),
-                         column(4,
-                                textInput("beer_conc", " ", value = "5,0")),
                          column(1,
                                 tags$p("%", class = "unit-label")),
                        ),
@@ -148,11 +135,14 @@ dashboardPage(
                                inputId = "white_wine_slider",
                                label = " ", min = 0, max = 10, value = 0, step = 1)),
                          column(4,
-                                textInput(inputId = "white_wine_vol", " ", value = " ")),
+                                textInput(
+                                  inputId = "white_wine_vol",
+                                  label = " ",
+                                  value = " "
+                                ) |> tagAppendAttributes(readonly = "readonly")
+                         ),
                          column(1,
                                 tags$p("L", class = "unit-label")),
-                         column(4,
-                                textInput("white_wine_conc", " ", value = "12,0")),
                          column(1,
                                 tags$p("%", class = "unit-label")),
                        ),
@@ -165,14 +155,27 @@ dashboardPage(
                                 textInput(inputId = "shot_vol", " ", value = " ")),
                          column(1,
                                 tags$p("mL", class = "unit-label")),
-                         column(4,
-                                textInput("shot_conc", " ", value = "40,0")),
                          column(1,
                                 tags$p("%", class = "unit-label")),
                        ),
-                ) 
+                )
               )
-            )
+            ),
+            box(
+              title = "TDM",
+              status = "primary",
+              solidHeader = TRUE,
+              width = 12,
+              fluidRow(
+                column(6,
+                       numericInput("measured_time", "Last drink (min)", value = 15.0, min = 0)
+                ),
+                column(6,
+                       numericInput("measured_conc", "Promille (‰)", value = 0.1, min = 0.01)
+                )
+              )
+              
+            ),
           ),
           column(
             width = 8,

@@ -12,6 +12,13 @@ library(shinyBS)
 # Load the mrgsolve model from model.cpp
 mod <- mrgsolve::mread("../model/model.cpp")
 
+# --- Standard drink definitions (single source of truth) ---
+STANDARD_DRINKS <- list(
+  beer = list(vol_ml = 500, conc_pct = 5.0,  label = "Beer",       unit_note = "330 mL bottle, 5.0% vol."),
+  wine = list(vol_ml = 200, conc_pct = 12.0, label = "White Wine", unit_note = "200 mL glass, 12.0% vol."),
+  shot = list(vol_ml = 20,  conc_pct = 40.0, label = "Shot",       unit_note = "20 mL shot, 40.0% vol.")
+)
+
 # Helper: format summary stats
 format_summary <- function(df) {
   if(nrow(df) == 0) return(NULL)
@@ -251,12 +258,12 @@ function(input, output, session) {
   
   
   # --- Reactive text field for drink volumes --- #
-  
+
   #beer volume
   observeEvent(input$beer_slider, {
 
     selected_volume <- (as.numeric(input$beer_slider))*0.5
-    
+
     formatted_volume_string <- format(
       selected_volume,
       decimal.mark = ",",
@@ -265,27 +272,27 @@ function(input, output, session) {
 
     updateNumericInput(session, "beer_vol", value = formatted_volume_string)
   })
-  
+
   #wine volume
   observeEvent(input$white_wine_slider, {
-    
+
     selected_volume <- (as.numeric(input$white_wine_slider))*0.2
-    
+
     formatted_volume_string <- format(
       selected_volume,
       decimal.mark = ",",
-      big.mark = ".",  
-      nsmall = 2       
+      big.mark = ".",
+      nsmall = 2
     )
-    
+
     updateNumericInput(session, "white_wine_vol", value = formatted_volume_string)
   })
-  
+
   #shot volume
   observeEvent(input$shot_slider, {
-    
-    selected_volume <- (as.numeric(input$shot_slider))*20 
-    
+
+    selected_volume <- (as.numeric(input$shot_slider))*20
+
     formatted_volume_string <- format(
       selected_volume,
       decimal.mark = ",",
@@ -293,8 +300,8 @@ function(input, output, session) {
     )
     updateNumericInput(session, "shot_vol", value = formatted_volume_string)
   })
-  
-  
+
+
   # --- Reset all drink sliders to zero ---
   observeEvent(input$reset_drinks_btn, {
     updateSliderInput(session, "beer_slider", value = 0)
@@ -303,40 +310,37 @@ function(input, output, session) {
   })
   
   
-  # --- Total ethanol amount reactive ---
-  
-  total_ethanol_g <- reactive({
-    # Volumes per drink (per slider unit)
-    beer_vol_per_unit <- as.numeric(gsub(",", ".", input$beer_vol))   # liters per beer
-    wine_vol_per_unit <- as.numeric(gsub(",", ".", input$white_wine_vol))  # liters per wine
-    shot_vol_per_unit <- as.numeric(gsub(",", ".", input$shot_vol))     # ml per shot
-    
-    
-    # Default concentrations (in % v/v), adjust if you allow custom conc input!
-    beer_conc <- as.numeric(gsub(",", ".", input$beer_conc))   # e.g., "5,0" to 5.0
-    wine_conc <- as.numeric(gsub(",", ".", input$white_wine_conc)) # e.g., "12,0"
-    shot_conc <- as.numeric(gsub(",", ".", input$shot_conc))   # e.g., "40,0"
-    
-    # Convert slider values to total volumes
-    beer_total_vol_ml <- input$beer_slider * beer_vol_per_unit * 1000      # mL
-    wine_total_vol_ml <- input$white_wine_slider * wine_vol_per_unit * 1000 # mL
-    shot_total_vol_ml <- input$shot_slider * shot_vol_per_unit             # mL
-    
-    # Ethanol volume in mL = total volume * (ethanol % / 100)
-    ethanol_ml <- 
-      (beer_total_vol_ml * (beer_conc / 100)) +
-      (wine_total_vol_ml * (wine_conc / 100)) +
-      (shot_total_vol_ml * (shot_conc / 100))
-    
-    # Ethanol density = 0.789 g/mL
-    ethanol_g <- ethanol_ml * 0.789
-    
-    return(ethanol_g)
-  })
-  
-  
-  
-  
+#--- Total ethanol amount reactive ---
+
+   total_ethanol_g <- reactive({
+     # Volumes per drink (per slider unit)
+     beer_vol_per_unit <- as.numeric(gsub(",", ".", input$beer_vol))   # liters per beer
+     wine_vol_per_unit <- as.numeric(gsub(",", ".", input$white_wine_vol))  # liters per wine
+     shot_vol_per_unit <- as.numeric(gsub(",", ".", input$shot_vol))     # ml per shot
+
+
+     # Default concentrations (in % v/v), adjust if you allow custom conc input!
+     beer_conc <- 5 #as.numeric(gsub(",", ".", input$beer_conc))   # e.g., "5,0" to 5.0
+     wine_conc <- 12.0 #as.numeric(gsub(",", ".", input$white_wine_conc)) # e.g., "12,0"
+     shot_conc <- 40.0 #as.numeric(gsub(",", ".", input$shot_conc))   # e.g., "40,0"
+
+     # Convert slider values to total volumes
+     beer_total_vol_ml <- input$beer_slider * beer_vol_per_unit * 1000      # mL
+     wine_total_vol_ml <- input$white_wine_slider * wine_vol_per_unit * 1000 # mL
+     shot_total_vol_ml <- input$shot_slider * shot_vol_per_unit             # mL
+
+     # Ethanol volume in mL = total volume * (ethanol % / 100)
+     ethanol_ml <-
+       (beer_total_vol_ml * (beer_conc / 100)) +
+       (wine_total_vol_ml * (wine_conc / 100)) +
+       (shot_total_vol_ml * (shot_conc / 100))
+
+     # Ethanol density = 0.789 g/mL
+     ethanol_g <- ethanol_ml * 0.789
+
+     return(ethanol_g)
+   })
+
   # add a list to store and inspect variables outside shinyapp
   shared <<- new.env()
   observe({
