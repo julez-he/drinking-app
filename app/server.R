@@ -366,75 +366,218 @@ function(input, output, session) {
     out
   })
   
+  # --- Time to drive (legal BAC crossing) ---
+  drive_status <- reactive({
+    df <- aprioriData()
+    legal_limit <- 0.5  # ‰, general German driving limit
+    
+    peak_cp <- max(df$cp, na.rm = TRUE)
+    
+    if (peak_cp < legal_limit) {
+      return(list(status = "clear", hours = 0))
+    }
+    
+    above_idx  <- which(df$cp >= legal_limit)
+    last_above <- max(above_idx)
+    
+    if (last_above >= nrow(df)) {
+      # still above the limit at the edge of the simulated window
+      return(list(status = "still_high", hours = NA))
+    }
+    
+    x1 <- df$time[last_above]     / 60; y1 <- df$cp[last_above]
+    x2 <- df$time[last_above + 1] / 60; y2 <- df$cp[last_above + 1]
+    slope <- (y2 - y1) / (x2 - x1)
+    time_cross_h <- x1 + (legal_limit - y1) / slope
+    
+    list(status = "waiting", hours = time_cross_h)
+  })
+  
+  output$drive_status_box <- renderUI({
+    ds <- drive_status()
+    
+    if (ds$status == "clear") {
+      bg <- "#DFF0D8"; fg <- "#3c763d"
+      headline <- "Already under 0.5‰ — model predicts no waiting time"
+    } else if (ds$status == "still_high") {
+      bg <- "#F2DEDE"; fg <- "#a94442"
+      headline <- "Still above 0.5‰ at the end of the simulated window — extend the timeframe slider"
+    } else {
+      hrs  <- floor(ds$hours)
+      mins <- round((ds$hours - hrs) * 60)
+      bg <- "#FCF8E3"; fg <- "#8a6d3b"
+      headline <- sprintf("🚫 Not safe to drive — about %dh %02dm remaining", hrs, mins)
+    }
+    
+    div(
+      style = paste0(
+        "background:", bg, "; color:", fg, "; border-radius:10px; ",
+        "padding:14px 20px; margin-bottom:10px; font-size:1.7em; ",
+        "font-weight:700; text-align:center;"
+      ),
+      headline,
+      tags$div(
+        style = "font-size:0.45em; font-weight:400; margin-top:4px;",
+        "Estimate only — not a legal or medical determination. When in doubt, don't drive."
+      )
+    )
+  })
+  
   output$aprioriPlot <- renderPlot({
     df <- aprioriData()
-    p <- ggplot(df, aes(x = time/60, y = cp)) +
-      geom_line(linewidth = 1.2, color = "blue") +
+    ds <- drive_status()  # from the reactive added earlier
+    
+    # --- Base plot ---
+    p <- ggplot(df, aes(x = time / 60, y = cp)) +
+      geom_line(linewidth = 1.3, color = "steelblue4") +
       labs(
         x = "Time since dose (h)",
-        y = "Blood ethanol (g/L ≈ ‰)"
+        y = "Blood ethanol (‰)",
+        title = "Predicted breath ethanol curve"
       ) +
       theme_minimal(base_size = 14) +
-      coord_cartesian(xlim = c(0, input$ap_time), ylim = c(0.0, NA))
+      theme(
+        plot.title = element_text(face = "bold", size = 16),
+        panel.grid.minor = element_blank()
+      ) +
+      coord_cartesian(xlim = c(0, input$ap_time), ylim = c(0, NA))
     
     maxcp <- max(df$cp, na.rm = TRUE)
     
-    if (maxcp > 0.3) {
-      p <- p +
-        geom_hline(yintercept = 0.3, linetype = "dashed", color = "green4") +
-        annotate("text", x = input$ap_time * 0.8, y = 0.35, label = "0.3 g/L", color = "green4", size = 5, fontface = "bold")
-    }
-    if (maxcp > 0.5) {
-      p <- p +
-        geom_hline(yintercept = 0.5, linetype = "dashed", color = "orange") +
-        annotate("text", x = input$ap_time * 0.8, y = 0.55, label = "0.5 g/L", color = "orange", size = 5, fontface = "bold")
-    }
-    if (maxcp > 1.0) {
-      p <- p +
-        geom_hline(yintercept = 1.0, linetype = "dashed", color = "red") +
-        annotate("text", x = input$ap_time * 0.8, y = 1.05, label = "1.0 g/L", color = "red", size = 5, fontface = "bold")
-    }
-    if (maxcp > 2.5) {
-      p <- p +
-        geom_hline(yintercept = 2.5, linetype = "dashed", color = "red") +
-        annotate("text", x = input$ap_time * 0.8, y = 2.55, label = "2.5 g/L", color = "red", size = 5, fontface = "bold")
-    }
-    if (maxcp > 5) {
-      p <- p +
-        geom_hline(yintercept = 5, linetype = "dashed", color = "black") +
-        annotate("text", x = input$ap_time * 0.8, y = 5, label = "5 g/L", color = "black", size = 5, fontface = "bold")
-    }
+    # --- Reference threshold lines (drawn only if curve actually reaches them) ---
+    thresholds <- tibble::tribble(
+      ~value, ~label,     ~color,
+      0.3,    "0.3 ‰",    "seagreen",
+      0.5,    "0.5 ‰ (driving limit)", "darkorange",
+      1.0,    "1.0 ‰",    "firebrick",
+      2.5,    "2.5 ‰",    "firebrick4",
+      5.0,    "5.0 ‰",    "black"
+    )
     
-    # Find intersection with y=0.5 (descending limb)
-    idx <- which(df$cp >= 0.5)
-    if (length(idx) >= 2) {
-      # Find the second crossing (descending limb)
-      idx2 <- idx[length(idx)]
-      if (idx2 < nrow(df)) {
-        x1 <- df$time[idx2-1]/60; y1 <- df$cp[idx2-1]
-        x2 <- df$time[idx2]/60;   y2 <- df$cp[idx2]
-        # Linear interpolation for crossing
-        slope <- (y2 - y1) / (x2 - x1)
-        time_cross <- x1 + (0.5 - y1) / slope
-        # Add vline and annotation
+    for (i in seq_len(nrow(thresholds))) {
+      th <- thresholds[i, ]
+      if (maxcp > th$value) {
+        is_limit <- th$value == 0.5
         p <- p +
-          geom_vline(xintercept = time_cross, linetype = "dotted", color = "orange", linewidth = 1) +
-          annotate("text", x = time_cross + 0.3, y = 0.3, label = sprintf("Second crossing: %.2f h", time_cross),
-                   color = "orange", fontface = "bold", vjust = -0.5, hjust = 0.1)
+          geom_hline(
+            yintercept = th$value,
+            linetype = if (is_limit) "solid" else "dashed",
+            color = th$color,
+            linewidth = if (is_limit) 1 else 0.6
+          ) +
+          annotate(
+            "text",
+            x = input$ap_time * 0.82,
+            y = th$value + 0.05 * max(maxcp, 1),
+            label = th$label,
+            color = th$color,
+            size = if (is_limit) 5 else 4,
+            fontface = "bold"
+          )
       }
     }
     
-    if (!(is.na(input$measured_time) || is.na(input$measured_conc))) {
-      measured_time <- as.numeric(input$measured_time) / 60  # convert to hours
-      measured_conc <- as.numeric(gsub(",", ".", input$measured_conc))  # convert to numeric
+    # --- "Time to drive" crossing marker (uses the shared drive_status reactive) ---
+    if (ds$status == "waiting") {
       p <- p +
-        annotate("point", x = measured_time, y = measured_conc, color = "red", size = 3) +
-        annotate("text", x = measured_time, y = measured_conc + 0.1 * measured_conc,
-                 label = paste0("Measured: ", measured_conc, " g/L"), color = "red", size = 4)
+        geom_vline(xintercept = ds$hours, linetype = "dotted",
+                   color = "darkorange", linewidth = 1.1) +
+        annotate(
+          "point", x = ds$hours, y = 0.5, color = "darkorange", size = 3
+        ) +
+        annotate(
+          "label",
+          x = ds$hours, y = max(maxcp, 1) * 0.9,
+          label = sprintf("Can drive at %.1f h", ds$hours),
+          color = "white", fill = "darkorange", fontface = "bold", size = 4.5
+        )
+    }
+    
+    # --- Measured point (field breathalyzer reading) ---
+    if (!(is.na(input$measured_time) || is.na(input$measured_conc))) {
+      measured_time <- as.numeric(input$measured_time) / 60
+      measured_conc <- as.numeric(gsub(",", ".", input$measured_conc))
+      p <- p +
+        annotate("point", x = measured_time, y = measured_conc,
+                 color = "red", size = 3.5, shape = 18) +
+        annotate("text", x = measured_time, y = measured_conc + 0.08 * max(maxcp, 1),
+                 label = paste0("Measured: ", input$measured_conc, " ‰"),
+                 color = "red", size = 4, fontface = "bold")
     }
     
     p
   })
+  
+  
+  # output$aprioriPlot <- renderPlot({
+  #   df <- aprioriData()
+  #   p <- ggplot(df, aes(x = time/60, y = cp)) +
+  #     geom_line(linewidth = 1.2, color = "blue") +
+  #     labs(
+  #       x = "Time since dose (h)",
+  #       y = "Blood ethanol (g/L ≈ ‰)"
+  #     ) +
+  #     theme_minimal(base_size = 14) +
+  #     coord_cartesian(xlim = c(0, input$ap_time), ylim = c(0.0, NA))
+  #   
+  #   maxcp <- max(df$cp, na.rm = TRUE)
+  #   
+  #   if (maxcp > 0.3) {
+  #     p <- p +
+  #       geom_hline(yintercept = 0.3, linetype = "dashed", color = "green4") +
+  #       annotate("text", x = input$ap_time * 0.8, y = 0.35, label = "0.3 g/L", color = "green4", size = 5, fontface = "bold")
+  #   }
+  #   if (maxcp > 0.5) {
+  #     p <- p +
+  #       geom_hline(yintercept = 0.5, linetype = "dashed", color = "orange") +
+  #       annotate("text", x = input$ap_time * 0.8, y = 0.55, label = "0.5 g/L", color = "orange", size = 5, fontface = "bold")
+  #   }
+  #   if (maxcp > 1.0) {
+  #     p <- p +
+  #       geom_hline(yintercept = 1.0, linetype = "dashed", color = "red") +
+  #       annotate("text", x = input$ap_time * 0.8, y = 1.05, label = "1.0 g/L", color = "red", size = 5, fontface = "bold")
+  #   }
+  #   if (maxcp > 2.5) {
+  #     p <- p +
+  #       geom_hline(yintercept = 2.5, linetype = "dashed", color = "red") +
+  #       annotate("text", x = input$ap_time * 0.8, y = 2.55, label = "2.5 g/L", color = "red", size = 5, fontface = "bold")
+  #   }
+  #   if (maxcp > 5) {
+  #     p <- p +
+  #       geom_hline(yintercept = 5, linetype = "dashed", color = "black") +
+  #       annotate("text", x = input$ap_time * 0.8, y = 5, label = "5 g/L", color = "black", size = 5, fontface = "bold")
+  #   }
+  #   
+  #   # Find intersection with y=0.5 (descending limb)
+  #   idx <- which(df$cp >= 0.5)
+  #   if (length(idx) >= 2) {
+  #     # Find the second crossing (descending limb)
+  #     idx2 <- idx[length(idx)]
+  #     if (idx2 < nrow(df)) {
+  #       x1 <- df$time[idx2-1]/60; y1 <- df$cp[idx2-1]
+  #       x2 <- df$time[idx2]/60;   y2 <- df$cp[idx2]
+  #       # Linear interpolation for crossing
+  #       slope <- (y2 - y1) / (x2 - x1)-
+  #       time_cross <- x1 + (0.5 - y1) / slope
+  #       # Add vline and annotation
+  #       p <- p +
+  #         geom_vline(xintercept = time_cross, linetype = "dotted", color = "orange", linewidth = 1) +
+  #         annotate("text", x = time_cross + 0.3, y = 0.3, label = sprintf("Second crossing: %.2f h", time_cross),
+  #                  color = "orange", fontface = "bold", vjust = -0.5, hjust = 0.1)
+  #     }
+  #   }
+  #   
+  #   if (!(is.na(input$measured_time) || is.na(input$measured_conc))) {
+  #     measured_time <- as.numeric(input$measured_time) / 60  # convert to hours
+  #     measured_conc <- as.numeric(gsub(",", ".", input$measured_conc))  # convert to numeric
+  #     p <- p +
+  #       annotate("point", x = measured_time, y = measured_conc, color = "red", size = 3) +
+  #       annotate("text", x = measured_time, y = measured_conc + 0.1 * measured_conc,
+  #                label = paste0("Measured: ", measured_conc, " g/L"), color = "red", size = 4)
+  #   }
+  #   
+  #   p
+  # })
   
   
   
